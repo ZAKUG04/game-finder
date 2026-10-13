@@ -324,6 +324,9 @@ function createGameCard(game) {
     <article
       class="game-card real-game-card"
       data-id="${escapeHTML(game.id)}"
+      tabindex="0"
+      role="button"
+      aria-label="View details for ${name}"
     >
       <div class="game-image-container">
         <img
@@ -887,6 +890,160 @@ document.addEventListener('click', (event) => {
     if (offset !== 0) {
       moveFavoritesCarousel(offset);
     }
+  }
+});
+
+
+// ========================================
+// GAME DETAILS MODAL
+// ========================================
+
+let activeDetailsRequest = 0;
+
+function getRawgApiKey() {
+  return import.meta.env.VITE_RAWG_API_KEY;
+}
+
+function closeGameDetails() {
+  const modal = document.querySelector('#game-details-modal');
+  if (modal) modal.remove();
+  document.body.classList.remove('details-modal-open');
+}
+
+function renderGameDetails(game) {
+  const modal = document.querySelector('#game-details-modal');
+  if (!modal) return;
+
+  const image = escapeHTML(game.background_image || '');
+  const name = escapeHTML(game.name || 'Game details');
+  const rating = escapeHTML(game.rating ?? 'N/A');
+  const released = escapeHTML(game.released || 'Not available');
+  const genres = (game.genres || [])
+    .map((genre) => escapeHTML(genre.name))
+    .join(', ') || 'Not available';
+  const platforms = (game.platforms || [])
+    .map((item) => escapeHTML(item.platform?.name))
+    .filter(Boolean)
+    .join(', ') || 'Not available';
+  const developers = (game.developers || [])
+    .map((developer) => escapeHTML(developer.name))
+    .join(', ') || 'Not available';
+  const description = escapeHTML(
+    game.description_raw || 'No description is available for this game.'
+  );
+
+  modal.innerHTML = `
+    <div class="game-details-backdrop" data-close-details="true">
+      <section
+        class="game-details-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="game-details-title"
+      >
+        <button class="game-details-close" type="button"
+          aria-label="Close game details" data-close-details="true">×</button>
+        ${image ? `<img class="game-details-image" src="${image}" alt="${name}">` : ''}
+        <div class="game-details-content">
+          <span class="section-label">GAME DETAILS</span>
+          <h2 id="game-details-title">${name}</h2>
+          <div class="game-details-stats">
+            <span>★ ${rating}</span>
+            <span>Released: ${released}</span>
+          </div>
+          <p class="game-details-description">${description}</p>
+          <dl class="game-details-list">
+            <div><dt>Genres</dt><dd>${genres}</dd></div>
+            <div><dt>Platforms</dt><dd>${platforms}</dd></div>
+            <div><dt>Developers</dt><dd>${developers}</dd></div>
+          </dl>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function openGameDetails(gameId) {
+  const requestId = ++activeDetailsRequest;
+  closeGameDetails();
+
+  const modal = document.createElement('div');
+  modal.id = 'game-details-modal';
+  modal.innerHTML = `
+    <div class="game-details-backdrop" data-close-details="true">
+      <section class="game-details-dialog game-details-loading"
+        role="dialog" aria-modal="true" aria-label="Game details">
+        <button class="game-details-close" type="button"
+          aria-label="Close game details" data-close-details="true">×</button>
+        <p class="loading-message">Loading game details...</p>
+      </section>
+    </div>
+  `;
+  document.body.append(modal);
+  document.body.classList.add('details-modal-open');
+
+  try {
+    const url = new URL(
+      `https://api.rawg.io/api/games/${encodeURIComponent(gameId)}`
+    );
+    url.searchParams.set('key', getRawgApiKey());
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`RAWG request failed (${response.status})`);
+    }
+
+    const game = await response.json();
+    if (requestId !== activeDetailsRequest) return;
+    renderGameDetails(game);
+  } catch (error) {
+    if (requestId !== activeDetailsRequest) return;
+    console.error('Game details error:', error);
+    const currentModal = document.querySelector('#game-details-modal');
+    if (currentModal) {
+      currentModal.innerHTML = `
+        <div class="game-details-backdrop" data-close-details="true">
+          <section class="game-details-dialog game-details-loading"
+            role="dialog" aria-modal="true" aria-label="Game details error">
+            <button class="game-details-close" type="button"
+              aria-label="Close game details" data-close-details="true">×</button>
+            <p class="error-message">
+              Unable to load game details. Please try again later.
+            </p>
+          </section>
+        </div>
+      `;
+    }
+  }
+}
+
+document.addEventListener('click', (event) => {
+  const closeControl = event.target.closest('[data-close-details="true"]');
+  if (closeControl) {
+    closeGameDetails();
+    return;
+  }
+
+  if (event.target.closest('.game-details-dialog')) return;
+
+  const favoriteButton = event.target.closest('.favorite-button');
+  if (favoriteButton) return;
+
+  const card = event.target.closest('.real-game-card');
+  if (card?.dataset.id) openGameDetails(card.dataset.id);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeGameDetails();
+    return;
+  }
+
+  if (
+    (event.key === 'Enter' || event.key === ' ') &&
+    event.target.matches('.real-game-card')
+  ) {
+    event.preventDefault();
+    if (event.target.dataset.id) openGameDetails(event.target.dataset.id);
   }
 });
 
